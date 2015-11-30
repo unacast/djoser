@@ -12,20 +12,21 @@ Instead of reusing Django code (e.g. `PasswordResetForm`), we reimplemented
 few things to fit better into [Single Page App](http://en.wikipedia.org/wiki/Single-page_application)
 architecture.
 
-We use **token based authentication**. The concept is simple - first of all, users obtain a token by
-providing their credentials (e.g. username, password) during logging in. Once the token is obtained
-users can offer it in order to retrieve a specific resource. Django REST framework
-supports [token based authentication](http://www.django-rest-framework.org/api-guide/authentication#tokenauthentication)
-but you might be interested in other authentication mechanisms like OAuth or session-based authentication.
-
 Developed by [SUNSCRAPERS](http://sunscrapers.com/) with passion & patience.
+
+## Features
+
+Here is a list of supported authentication backends:
+
+ * [HTTP Basic Auth](http://www.django-rest-framework.org/api-guide/authentication/#basicauthentication) (Default)
+ * [Token based authentication from Django Rest Framework](http://www.django-rest-framework.org/api-guide/authentication#tokenauthentication)
 
 Available endpoints:
 
  * `/me/`
  * `/register/`
- * `/login/`
- * `/logout/`
+ * `/login/` (token based authentication)
+ * `/logout/` (token based authentication)
  * `/activate/`
  * `/{{ User.USERNAME_FIELD }}/`
  * `/password/`
@@ -37,6 +38,7 @@ Supported Python versions:
  * Python 2.6
  * Python 2.7
  * Python 3.4
+ * Python 3.5
 
 Supported Django versions:
 
@@ -49,7 +51,7 @@ Supported Django Rest Framework versions:
 
  * Django Rest Framework 3.x
  
-For Django Rest Framework 2.4 support check [djoser 0.3.1](https://github.com/sunscrapers/djoser/tree/0.3.1). 
+For Django Rest Framework 2.4 support check [djoser 0.3.2](https://github.com/sunscrapers/djoser/tree/0.3.2). 
 
 ## Installation
 
@@ -57,7 +59,7 @@ Use `pip`:
 
     $ pip install djoser
 
-## Usage
+## Quick Start
 
 Configure `INSTALLED_APPS`:
 
@@ -66,7 +68,6 @@ INSTALLED_APPS = (
     'django.contrib.auth',
     (...),
     'rest_framework',
-    'rest_framework.authtoken',
     'djoser',
     (...),
 )
@@ -81,8 +82,48 @@ urlpatterns = patterns('',
 )
 ```
 
-Use `TokenAuthentication` as default Django Rest Framework authentication
-strategy:
+HTTP Basic Auth strategy is assumed by default as Django Rest Framework does it. However you may want to set it
+explicitly:
+
+```python
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.BasicAuthentication',
+    ),
+}
+```
+
+Run migrations (if you are using Django 1.7+ or South) - this step will create tables for `auth` app:
+
+    $ ./manage.py migrate
+
+## Customizing authentication backend
+
+### Token Based Authentication
+
+Add `'rest_framework.authtoken'` to `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS = (
+    'django.contrib.auth',
+    (...),
+    'rest_framework',
+    'rest_framework.authtoken',
+    'djoser',
+    (...),
+)
+```
+
+Configure `urls.py`. Pay attention to `djoser.url.authtoken` module path.
+
+```python
+urlpatterns = patterns('',
+    (...),
+    url(r'^auth/', include('djoser.urls.authtoken')),
+)
+```
+
+Set `TokenAuthentication` as default Django Rest Framework authentication strategy:
 
 ```python
 REST_FRAMEWORK = {
@@ -96,6 +137,8 @@ Run migrations (if you are using Django 1.7+ or South) - this step will create t
 
     $ ./manage.py migrate
 
+## Settings
+
 Optionally add `DJOSER` settings:
 
 ```python
@@ -104,7 +147,6 @@ DJOSER = {
     'SITE_NAME': 'Frontend',
     'PASSWORD_RESET_CONFIRM_URL': '#/password/reset/confirm/{uid}/{token}',
     'ACTIVATION_URL': '#/activate/{uid}/{token}',
-    'LOGIN_AFTER_ACTIVATION': True,
     'SEND_ACTIVATION_EMAIL': True,
 }
 ```
@@ -167,9 +209,6 @@ method and have [USERNAME_FIELD](https://docs.djangoproject.com/en/dev/topics/au
 and [REQUIRED_FIELDS](https://docs.djangoproject.com/en/dev/topics/auth/customizing/#django.contrib.auth.models.CustomUser.REQUIRED_FIELDS)
 fields.
 
-If `LOGIN_AFTER_REGISTRATION` is `True`, you will receive authentication token
-within response.
-
 #### `POST`
 
 URL: `/register/`
@@ -196,11 +235,10 @@ URL: `/register/`
 
         `{{ User.REQUIRED_FIELDS }}`
 
-        `auth_token` (if `LOGIN_AFTER_REGISTRATION` is `True`)
-
 ### Login
 
 Use this endpoint to obtain user [authentication token](http://www.django-rest-framework.org/api-guide/authentication#tokenauthentication).
+This endpoint is available only if you are using token based authentication.
 
 #### `POST`
 
@@ -224,7 +262,8 @@ URL: `/login/`
 
 ### Logout
 
-Use this endpoint to logout user (remove user authentication token).
+Use this endpoint to logout user (remove user authentication token). This endpoint is available only if you are using
+token based authentication.
 
 #### `POST`
 
@@ -236,9 +275,9 @@ URL: `/logout/`
 
 ### Activate
 
-Use this endpoint to activate user account. This enpoint is not a URL which
+Use this endpoint to activate user account. This endpoint is not a URL which
 will be directly exposed to your users - you should provide site in your
-frontend application (cofigured by `ACTIVATION_URL`) which will send `POST`
+frontend application (configured by `ACTIVATION_URL`) which will send `POST`
 request to activate endpoint.
 
 #### `POST`
@@ -256,10 +295,6 @@ URL: `/activate/`
 * **response**
 
     * status: `HTTP_200_OK` (success)
-
-    * data:
-
-        `auth_token` (if `LOGIN_AFTER_ACTIVATION` is `True`)
 
 ### Set username
 
@@ -326,9 +361,9 @@ URL: `/password/reset/`
 
 ### Reset password confirmation
 
-Use this endpoint to finish reset password process. This enpoint is not a URL
+Use this endpoint to finish reset password process. This endpoint is not a URL
 which will be directly exposed to your users - you should provide site in your
-frontend application (cofigured by `PASSWORD_RESET_CONFIRM_URL_URL`) which
+frontend application (configured by `PASSWORD_RESET_CONFIRM_URL`) which
 will send `POST` request to reset password confirmation endpoint.
 
 #### `POST`
@@ -352,12 +387,6 @@ URL: `/password/reset/confirm/`
     * status: `HTTP_200_OK` (success)
 
 ## Settings
-
-### LOGIN_AFTER_REGISTRATION
-
-If `True`, register endpoint will return `auth_token` within response.
-
-**Default**: `False`
 
 ### DOMAIN
 
@@ -394,12 +423,6 @@ placeholders, e.g. `#/activate/{uid}/{token}`. You should pass `uid` and
 `token` to activation endpoint.
 
 **Required**: `True`
-
-### LOGIN_AFTER_ACTIVATION
-
-If `True`, activate endpoint will return `auth_token` within response.
-
-**Default**: `False`
 
 ### SET_USERNAME_RETYPE
 

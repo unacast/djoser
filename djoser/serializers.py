@@ -19,7 +19,8 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
 
-class AbstractUserRegistrationSerializer(serializers.ModelSerializer):
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(style={'input_type': 'password'}, write_only=True)
 
     class Meta:
         model = User
@@ -28,32 +29,13 @@ class AbstractUserRegistrationSerializer(serializers.ModelSerializer):
             User._meta.pk.name,
             'password',
         )
-        write_only_fields = (
-            'password',
-        )
-
-
-class UserRegistrationSerializer(AbstractUserRegistrationSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
 
 
-class UserRegistrationWithAuthTokenSerializer(UserRegistrationSerializer):
-    auth_token = serializers.SerializerMethodField(method_name='get_user_auth_token')
-
-    class Meta(UserRegistrationSerializer.Meta):
-        model = User
-        fields = UserRegistrationSerializer.Meta.fields + (
-            'auth_token',
-        )
-
-    def get_user_auth_token(self, obj):
-        return obj.auth_token.key
-
-
 class LoginSerializer(serializers.Serializer):
-    password = serializers.CharField(required=False)
+    password = serializers.CharField(required=False, style={'input_type': 'password'})
 
     default_error_messages = {
         'inactive_account': constants.INACTIVE_ACCOUNT_ERROR,
@@ -66,7 +48,7 @@ class LoginSerializer(serializers.Serializer):
         self.fields[User.USERNAME_FIELD] = serializers.CharField(required=False)
 
     def validate(self, attrs):
-        self.user = authenticate(username=attrs[User.USERNAME_FIELD], password=attrs['password'])
+        self.user = authenticate(username=attrs.get(User.USERNAME_FIELD), password=attrs.get('password'))
         if self.user:
             if not self.user.is_active:
                 raise serializers.ValidationError(self.error_messages['inactive_account'])
@@ -91,7 +73,7 @@ class UidAndTokenSerializer(serializers.Serializer):
         try:
             uid = utils.decode_uid(value)
             self.user = User.objects.get(pk=uid)
-        except (User.DoesNotExist, ValueError, TypeError, ValueError, OverflowError) as error:
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError) as error:
             raise serializers.ValidationError(error)
         return value
 
@@ -103,11 +85,11 @@ class UidAndTokenSerializer(serializers.Serializer):
 
 
 class PasswordSerializer(serializers.Serializer):
-    new_password = serializers.CharField()
+    new_password = serializers.CharField(style={'input_type': 'password'})
 
 
 class PasswordRetypeSerializer(PasswordSerializer):
-    re_new_password = serializers.CharField()
+    re_new_password = serializers.CharField(style={'input_type': 'password'})
 
     default_error_messages = {
         'password_mismatch': constants.PASSWORD_MISMATCH_ERROR,
@@ -121,7 +103,7 @@ class PasswordRetypeSerializer(PasswordSerializer):
 
 
 class CurrentPasswordSerializer(serializers.Serializer):
-    current_password = serializers.CharField()
+    current_password = serializers.CharField(style={'input_type': 'password'})
 
     default_error_messages = {
         'invalid_password': constants.INVALID_PASSWORD_ERROR,

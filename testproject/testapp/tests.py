@@ -1,11 +1,9 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model, user_logged_in, user_login_failed, user_logged_out
 from django.contrib.auth.tokens import default_token_generator
-from django.contrib.sites.models import get_current_site
 from django.core import mail
 from django.test.utils import override_settings
 from djet import assertions, utils, restframework
-import rest_framework
 from rest_framework import status
 import djoser.views
 import djoser.constants
@@ -22,6 +20,21 @@ def create_user(**kwargs):
     user = get_user_model().objects.create_user(**data)
     user.raw_password = data['password']
     return user
+
+
+class RootViewTest(restframework.APIViewTestCase,
+                   assertions.StatusCodeAssertionsMixin):
+    view_class = djoser.views.RootView
+
+    def test_get_should_return_urls_mapping(self):
+        request = self.factory.get()
+        view_object = self.create_view_object(request)
+
+        response = view_object.dispatch(request)
+
+        self.assert_status_equal(response, status.HTTP_200_OK)
+        for key in view_object.get_urls_mapping().keys():
+            self.assertIn(key, response.data)
 
 
 class RegistrationViewTest(restframework.APIViewTestCase,
@@ -41,25 +54,9 @@ class RegistrationViewTest(restframework.APIViewTestCase,
         response = self.view(request)
 
         self.assert_status_equal(response, status.HTTP_201_CREATED)
-        self.assert_instance_exists(get_user_model(), username=data['username'])
-        self.assertNotIn('auth_token', response.data)
-        user = get_user_model().objects.get(username=data['username'])
-        self.assertTrue(user.check_password(data['password']))
-
-    @override_settings(DJOSER=dict(settings.DJOSER, **{'LOGIN_AFTER_REGISTRATION': True}))
-    def test_post_should_create_user_with_login(self):
-        data = {
-            'username': 'john',
-            'password': 'secret',
-        }
-        request = self.factory.post(data=data)
-
-        response = self.view(request)
-
-        self.assert_status_equal(response, status.HTTP_201_CREATED)
+        self.assertTrue('password' not in response.data)
         self.assert_instance_exists(get_user_model(), username=data['username'])
         user = get_user_model().objects.get(username=data['username'])
-        self.assertEqual(response.data['auth_token'], user.auth_token.key)
         self.assertTrue(user.check_password(data['password']))
 
     @override_settings(DJOSER=dict(settings.DJOSER, **{'SEND_ACTIVATION_EMAIL': True}))
@@ -150,6 +147,15 @@ class LoginViewTest(restframework.APIViewTestCase,
         self.assertEqual(response.data['non_field_errors'], [djoser.constants.INVALID_CREDENTIALS_ERROR])
         self.assertTrue(self.signal_sent)
 
+    def test_post_should_not_login_if_empty_request(self):
+        data = {}
+        request = self.factory.post(data=data)
+
+        response = self.view(request)
+
+        self.assert_status_equal(response, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['non_field_errors'], [djoser.constants.INVALID_CREDENTIALS_ERROR])
+
 
 class LogoutViewTest(restframework.APIViewTestCase,
                      assertions.StatusCodeAssertionsMixin):
@@ -206,7 +212,7 @@ class PasswordResetViewTest(restframework.APIViewTestCase,
         self.assert_status_equal(response, status.HTTP_200_OK)
         self.assert_emails_in_mailbox(1)
         self.assert_email_exists(to=[user.email])
-        site = get_current_site(request)
+        site = djoser.utils.get_current_site(request)
         self.assertIn(site.domain, mail.outbox[0].body)
         self.assertIn(site.name, mail.outbox[0].body)
 
@@ -222,6 +228,17 @@ class PasswordResetViewTest(restframework.APIViewTestCase,
 
         self.assertIn(settings.DJOSER['DOMAIN'], mail.outbox[0].body)
         self.assertIn(settings.DJOSER['SITE_NAME'], mail.outbox[0].body)
+
+    def test_post_should_send_email_to_user_with_domain_and_site_name_from_request(self):
+        user = create_user()
+        data = {
+            'email': user.email,
+        }
+        request = self.factory.post(data=data)
+
+        self.view(request)
+
+        self.assertIn(request.get_host(), mail.outbox[0].body)
 
     def test_post_should_not_send_email_to_user_if_user_does_not_exist(self):
         data = {
@@ -357,25 +374,6 @@ class ActivationViewTest(restframework.APIViewTestCase,
         self.assert_status_equal(response, status.HTTP_200_OK)
         user = utils.refresh(user)
         self.assertTrue(user.is_active)
-        self.assertNotIn('auth_token', response.data)
-
-    @override_settings(DJOSER={'LOGIN_AFTER_ACTIVATION': True})
-    def test_post_should_activate_user_and_login(self):
-        user = create_user()
-        user.is_active = False
-        user.save()
-        data = {
-            'uid': djoser.utils.encode_uid(user.pk),
-            'token': default_token_generator.make_token(user),
-        }
-        request = self.factory.post(data=data)
-
-        response = self.view(request)
-
-        self.assert_status_equal(response, status.HTTP_200_OK)
-        user = utils.refresh(user)
-        self.assertTrue(user.is_active)
-        self.assertEqual(response.data['auth_token'], user.auth_token.key)
 
 
 class SetPasswordViewTest(restframework.APIViewTestCase,

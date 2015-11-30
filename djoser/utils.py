@@ -1,8 +1,12 @@
 from django.conf import settings as django_settings
-from django.contrib.sites.models import get_current_site
 from django.core.mail import EmailMultiAlternatives, EmailMessage
 from django.template import loader
 from rest_framework import response, status
+
+try:
+    from django.contrib.sites.shortcuts import get_current_site
+except ImportError:
+    from django.contrib.sites.models import get_current_site
 
 
 def encode_uid(pk):
@@ -48,7 +52,7 @@ def send_email(to_email, from_email, context, subject_template_name,
 class ActionViewMixin(object):
 
     def post(self, request):
-        serializer = self.get_serializer(data=request.DATA)
+        serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             return self.action(serializer)
         else:
@@ -93,12 +97,8 @@ class SendEmailViewMixin(object):
     def get_email_context(self, user):
         token = self.token_generator.make_token(user)
         uid = encode_uid(user.pk)
-        try:
-            domain = django_settings.DJOSER['DOMAIN']
-            site_name = django_settings.DJOSER['SITE_NAME']
-        except KeyError:
-            site = get_current_site(self.request)
-            domain, site_name = site.domain, site.name
+        domain = django_settings.DJOSER.get('DOMAIN') or get_current_site(self.request).domain
+        site_name = django_settings.DJOSER.get('SITE_NAME') or get_current_site(self.request).name
         return {
             'user': user,
             'domain': domain,

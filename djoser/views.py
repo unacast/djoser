@@ -13,23 +13,32 @@ class RootView(views.APIView):
     """
     Root endpoint - use one of sub endpoints.
     """
+    permission_classes = (
+        permissions.AllowAny,
+    )
+    urls_mapping = {
+        'me': 'user',
+        'register': 'register',
+        'activate': 'activate',
+        'change-' + User.USERNAME_FIELD: 'set_username',
+        'change-password': 'set_password',
+        'password-reset': 'password_reset',
+        'password-reset-confirm': 'password_reset_confirm',
+    }
+    urls_extra_mapping = None
+
+    def get_urls_mapping(self, **kwargs):
+        mapping = self.urls_mapping.copy()
+        mapping.update(kwargs)
+        if self.urls_extra_mapping:
+            mapping.update(self.urls_extra_mapping)
+        mapping.update(settings.get('ROOT_VIEW_URLS_MAPPING'))
+        return mapping
 
     def get(self, request, format=None):
-        urls_mapping = {
-            'me': 'user',
-            'register': 'register',
-            'login': 'login',
-            'logout': 'logout',
-            'activate': 'activate',
-            'change-' + User.USERNAME_FIELD: 'set_username',
-            'change-password': 'set_password',
-            'password-reset': 'password_reset',
-            'password-reset-confirm': 'password_reset_confirm',
-        }
-
         return Response(
             dict([(key, reverse(url_name, request=request, format=format))
-                  for key, url_name in urls_mapping.items()])
+                  for key, url_name in self.get_urls_mapping().items()])
         )
 
 
@@ -37,6 +46,7 @@ class RegistrationView(utils.SendEmailViewMixin, generics.CreateAPIView):
     """
     Use this endpoint to register new user.
     """
+    serializer_class = serializers.UserRegistrationSerializer
     permission_classes = (
         permissions.AllowAny,
     )
@@ -44,22 +54,11 @@ class RegistrationView(utils.SendEmailViewMixin, generics.CreateAPIView):
     subject_template_name = 'activation_email_subject.txt'
     plain_body_template_name = 'activation_email_body.txt'
 
-    def get_serializer_class(self):
-        if settings.get('LOGIN_AFTER_REGISTRATION'):
-            return serializers.UserRegistrationWithAuthTokenSerializer
-        return serializers.UserRegistrationSerializer
-
-    def post_save(self, obj, created=False):
-        if settings.get('LOGIN_AFTER_REGISTRATION'):
-            Token.objects.get_or_create(user=obj)
-        if settings.get('SEND_ACTIVATION_EMAIL'):
-            self.send_email(**self.get_send_email_kwargs(obj))
-
     def perform_create(self, serializer):
         instance = serializer.save()
-        signals.user_registered.send(
-            sender=self.__class__, user=instance, request=self.request)
-        self.post_save(obj=instance, created=True)
+        signals.user_registered.send(sender=self.__class__, user=instance, request=self.request)
+        if settings.get('SEND_ACTIVATION_EMAIL'):
+            self.send_email(**self.get_send_email_kwargs(instance))
 
     def get_email_context(self, user):
         context = super(RegistrationView, self).get_email_context(user)
@@ -184,12 +183,7 @@ class ActivationView(utils.ActionViewMixin, generics.GenericAPIView):
         serializer.user.save()
         signals.user_activated.send(
             sender=self.__class__, user=serializer.user, request=self.request)
-        if settings.get('LOGIN_AFTER_ACTIVATION'):
-            token, _ = Token.objects.get_or_create(user=serializer.user)
-            data = serializers.TokenSerializer(token).data
-        else:
-            data = {}
-        return Response(data=data, status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_200_OK)
 
 
 class SetUsernameView(utils.ActionViewMixin, generics.GenericAPIView):
